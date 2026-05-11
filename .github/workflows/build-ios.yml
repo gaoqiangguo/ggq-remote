@@ -6,18 +6,17 @@ on:
 
 jobs:
   build-ipa:
-    runs-on: macos-latest   # 换成最新macOS，排队更快
-    timeout-minutes: 20      # 超时缩短
+    runs-on: macos-latest
+    timeout-minutes: 20
 
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 设置Node.js环境（带缓存）
+      - name: 设置Node.js环境
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: 'npm'
 
       - name: 准备前端文件
         run: |
