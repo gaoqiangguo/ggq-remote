@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>远程控制</title>
+    <!-- PWA配置 -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="远程控制">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/1159/1159621.png">
+    <link rel="apple-touch-startup-image" href="/splash.png">
+
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        html, body {
+            width:100%; height:100%;
+            overflow:hidden;
+            background:#000;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        #screen-container {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw;
+            height: 100vh;
+            transform-origin: 0 0 !important;
+            will-change: transform;
+            z-index: 1;
+        }
+        #screen-img {
+            position: absolute;
+            top: 0; left: 0;
+            display: block;
+            pointer-events: none;
+            image-rendering: pixelated !important;
+            image-rendering: -webkit-optimize-contrast !important;
+            image-rendering: crisp-edges !important;
+            will-change: width, height;
+        }
+        /* Windows标准鼠标指针 */
+        #custom-cursor {
+            position: fixed;
+            width: 13px;
+            height: 20px;
+            z-index: 9998;
+            pointer-events: none;
+            transform-origin: 0 0;
+            clip-path: polygon(0 0, 100% 60%, 60% 62%, 75% 100%, 45% 95%, 30% 62%, 0 100%);
+            background: white;
+            border: 1px solid black;
+            visibility: hidden;
+        }
+        /* 主控制圆圈 */
+        #control-circle {
+            position: fixed;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 2px solid #0096ff;
+            background: rgba(0,150,255,0.25);
+            z-index: 9999;
+            pointer-events: auto;
+            visibility: hidden;
+        }
+        /* 功能按钮通用样式 */
+        .control-btn {
+            position: fixed;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid #0096ff;
+            background: rgba(0,150,255,0.35);
+            color: white;
+            font-size: 12px;
+            text-align: center;
+            line-height: 36px;
+            z-index: 9999;
+            pointer-events: auto;
+            visibility: hidden;
+            touch-action: none;
+        }
+        /* 左侧拖动按钮 */
+        #left-btn {
+            border-color: #4CAF50;
+            background: rgba(76, 175, 80, 0.35);
+        }
+        /* 右侧右键按钮 */
+        #right-btn {
+            border-color: #f44336;
+            background: rgba(244, 67, 54, 0.35);
+        }
+        /* 侧边工具栏 */
+        #toolbar {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toolbar-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid white;
+            background: rgba(0,0,0,0.5);
+            color: white;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        /* 画质选择菜单 */
+        #quality-menu {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            border-radius: 8px;
+            padding: 10px;
+            z-index: 10001;
+            display: none;
+        }
+        .quality-option {
+            color: white;
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .quality-option:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .quality-option.active {
+            color: #0096ff;
+        }
+        /* 键盘 */
+        #keyboard {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0,0,0,0.9);
+            padding: 10px;
+            z-index: 10000;
+            display: none;
+        }
+        #keyboard-input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            background: #333;
+            color: white;
+        }
+        /* 剪贴板同步提示 */
+        #clipboard-toast {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            z-index: 10002;
+            display: none;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.2/dist/socket.io.min.js"></script>
+</head>
+<body>
+    <div id="screen-container">
+        <img id="screen-img" alt="远程画面" />
+    </div>
+    <div id="custom-cursor"></div>
+    <div id="control-circle"></div>
+    <div id="left-btn" class="control-btn">拖动</div>
+    <div id="right-btn" class="control-btn">右键</div>
+
+    <!-- 侧边工具栏 -->
+    <div id="toolbar">
+        <div class="toolbar-btn" id="quality-btn">🎨</div>
+        <div class="toolbar-btn" id="keyboard-btn">⌨️</div>
+        <div class="toolbar-btn" id="clipboard-btn">📋</div>
+    </div>
+
+    <!-- 画质选择菜单 -->
+    <div id="quality-menu">
+        <div class="quality-option active" data-level="0">无损画质</div>
+        <div class="quality-option" data-level="1">高清画质</div>
+        <div class="quality-option" data-level="2">标清画质</div>
+    </div>
+
+    <!-- 键盘输入框 -->
+    <div id="keyboard">
+        <input type="text" id="keyboard-input" placeholder="输入文字发送到电脑" />
+    </div>
+
+    <!-- 剪贴板提示 -->
+    <div id="clipboard-toast">剪贴板已同步</div>
+
+<script>
+    const socket = io({
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        maxHttpBufferSize: 10*1024*1024
+    });
+    const screenContainer = document.getElementById('screen-container');
+    const screenImg = document.getElementById('screen-img');
+    const cursor = document.getElementById('custom-cursor');
+    const circle = document.getElementById('control-circle');
+    const leftBtn = document.getElementById('left-btn');
+    const rightBtn = document.getElementById('right-btn');
+    const qualityBtn = document.getElementById('quality-btn');
+    const qualityMenu = document.getElementById('quality-menu');
+    const keyboardBtn = document.getElementById('keyboard-btn');
+    const keyboard = document.getElementById('keyboard');
+    const keyboardInput = document.getElementById('keyboard-input');
+    const clipboardBtn = document.getElementById('clipboard-btn');
+    const clipboardToast = document.getElementById('clipboard-toast');
+
+    // 电脑屏幕基准
+    let PC_WIDTH = 0;
+    let PC_HEIGHT = 0;
+    let pcMouseX = 0;
+    let pcMouseY = 0;
+
+    // 画面核心参数
+    let baseScale = 1;
+    let baseWidth = 0;
+    let baseHeight = 0;
+    let baseLeft = 0;
+    let baseTop = 0;
+
+    // 缩放平移参数
+    let currentScale = 1.0;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    // 操作灵敏度
+    let SENSITIVITY = 2.8;
+    let isInit = false;
+    let currentQualityLevel = 0;
+
+    // ========== 工具函数 ==========
+    function send(cmd, data) {
+        socket.emit(cmd, data);
+    }
+
+    function showToast(message) {
+        clipboardToast.textContent = message;
+        clipboardToast.style.display = 'block';
+        setTimeout(() => {
+            clipboardToast.style.display = 'none';
+        }, 2000);
+    }
+
+    // ========== 更新流参数 ==========
+    function updateStream() {
+        if (!isInit) return;
+
+        const displayWidth = baseWidth * currentScale;
+        const displayHeight = baseHeight * currentScale;
+
+        send('update_stream_params', {
+            scale: currentScale,
+            offset_x: offsetX,
+            offset_y: offsetY,
+            display_width: displayWidth,
+            display_height: displayHeight,
+            quality_level: currentQualityLevel
+        });
+
+        screenImg.style.width = `${displayWidth}px`;
+        screenImg.style.height = `${displayHeight}px`;
+    }
+
+    // ========== 初始化画面参数 ==========
+    function initScreen() {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        const sx = vw / PC_WIDTH;
+        const sy = vh / PC_HEIGHT;
+        baseScale = Math.min(sx, sy);
+
+        baseWidth = PC_WIDTH * baseScale;
+        baseHeight = PC_HEIGHT * baseScale;
+
+        baseLeft = (vw - baseWidth) / 2;
+        baseTop = (vh - baseHeight) / 2;
+
+        currentScale = 1.0;
+        offsetX = 0;
+        offsetY = 0;
+
+        updateScreenTransform();
+        updateStream();
+
+        console.log('✅ 画面初始化完成');
+    }
+
+    // ========== 更新画面变换 ==========
+    function updateScreenTransform() {
+        screenContainer.style.transform = `translate(${baseLeft + offsetX}px, ${baseTop + offsetY}px) scale(${currentScale})`;
+    }
+
+    // ========== 鼠标位置计算 ==========
+    function updateCursor() {
+        if (!isInit) return;
+
+        const targetX = baseLeft + offsetX + (pcMouseX * baseScale * currentScale);
+        const targetY = baseTop + offsetY + (pcMouseY * baseScale * currentScale);
+
+        const screenLeft = baseLeft + offsetX;
+        const screenRight = baseLeft + offsetX + (baseWidth * currentScale);
+        const screenTop = baseTop + offsetY;
+        const screenBottom = baseTop + offsetY + (baseHeight * currentScale);
+
+        const finalX = Math.max(screenLeft, Math.min(screenRight - cursor.offsetWidth, targetX));
+        const finalY = Math.max(screenTop, Math.min(screenBottom - cursor.offsetHeight, targetY));
+
+        cursor.style.left = finalX + 'px';
+        cursor.style.top = finalY + 'px';
+
+        const circleCenterX = finalX + 35;
+        const circleCenterY = finalY + 35;
+
+        circle.style.left = (circleCenterX - circle.offsetWidth / 2) + 'px';
+        circle.style.top = (circleCenterY - circle.offsetHeight / 2) + 'px';
+        leftBtn.style.left = (circleCenterX - circle.offsetWidth / 2 - leftBtn.offsetWidth - 10) + 'px';
+        leftBtn.style.top = (circleCenterY - leftBtn.offsetHeight / 2) + 'px';
+        rightBtn.style.left = (circleCenterX + circle.offsetWidth / 2 + 10) + 'px';
+        rightBtn.style.top = (circleCenterY - rightBtn.offsetHeight / 2) + 'px';
+
+        cursor.style.visibility = 'visible';
+        circle.style.visibility = 'visible';
+        leftBtn.style.visibility = 'visible';
+        rightBtn.style.visibility = 'visible';
+    }
+
+    // ========== 缩放平移系统 ==========
+    let startDist = 0;
+    let startScaleVal = 1;
+    let startOffsetX = 0;
+    let startOffsetY = 0;
+    let isPanning = false;
+    let isPinching = false;
+    let pinchCenterX = 0;
+    let pinchCenterY = 0;
+
+    screenContainer.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const touches = e.touches;
+
+        if (touches.length === 2) {
+            isPinching = true;
+            isPanning = false;
+
+            const dx = touches[0].clientX - touches[1].clientX;
+            const dy = touches[0].clientY - touches[1].clientY;
+            startDist = Math.hypot(dx, dy);
+
+            pinchCenterX = (touches[0].clientX + touches[1].clientX) / 2;
+            pinchCenterY = (touches[0].clientY + touches[1].clientY) / 2;
+
+            startScaleVal = currentScale;
+            startOffsetX = offsetX;
+            startOffsetY = offsetY;
+        } else if (touches.length === 1 && currentScale > 1.0) {
+            isPanning = true;
+            isPinching = false;
+            startOffsetX = offsetX - touches[0].clientX;
+            startOffsetY = offsetY - touches[0].clientY;
+        }
+    });
+
+    screenContainer.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        const touches = e.touches;
+
+        if (touches.length === 2 && isPinching) {
+            const dx = touches[0].clientX - touches[1].clientX;
+            const dy = touches[0].clientY - touches[1].clientY;
+            const currDist = Math.hypot(dx, dy);
+            if (startDist < 10) return;
+
+            const newScale = Math.min(8, Math.max(1, startScaleVal * (currDist / startDist)));
+            const scaleChange = newScale / currentScale;
+
+            offsetX = pinchCenterX - (pinchCenterX - (baseLeft + offsetX)) * scaleChange - baseLeft;
+            offsetY = pinchCenterY - (pinchCenterY - (baseTop + offsetY)) * scaleChange - baseTop;
+
+            currentScale = newScale;
+
+            fixBoundaries();
+            updateScreenTransform();
+            updateCursor();
+        } else if (touches.length === 1 && isPanning && currentScale > 1.0) {
+            let newOffsetX = touches[0].clientX + startOffsetX;
+            let newOffsetY = touches[0].clientY + startOffsetY;
+
+            offsetX = newOffsetX;
+            offsetY = newOffsetY;
+
+            fixBoundaries();
+            updateScreenTransform();
+            updateCursor();
+        }
+    });
+
+    screenContainer.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        isPanning = false;
+        isPinching = false;
+        startDist = 0;
+
+        if (currentScale <= 1.0) {
+            currentScale = 1.0;
+            offsetX = 0;
+            offsetY = 0;
+            updateScreenTransform();
+            updateCursor();
+        }
+
+        updateStream();
+    });
+
+    // ========== 边界修正算法 ==========
+    function fixBoundaries() {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const scaledWidth = baseWidth * currentScale;
+        const scaledHeight = baseHeight * currentScale;
+
+        const margin = 80;
+
+        if (scaledWidth <= vw) {
+            offsetX = (vw - scaledWidth) / 2 - baseLeft;
+        } else {
+            const maxOffsetX = margin;
+            const minOffsetX = -(scaledWidth - vw + margin);
+            offsetX = Math.max(minOffsetX, Math.min(maxOffsetX, offsetX));
+        }
+
+        if (scaledHeight <= vh) {
+            offsetY = (vh - scaledHeight) / 2 - baseTop;
+        } else {
+            const maxOffsetY = margin;
+            const minOffsetY = -(scaledHeight - vh + margin);
+            offsetY = Math.max(minOffsetY, Math.min(maxOffsetY, offsetY));
+        }
+    }
+
+    // ========== 控制按钮拖动处理 ==========
+    let lastX = 0;
+    let lastY = 0;
+    let isDraggingLeft = false;
+
+    // 主控制圆圈
+    circle.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+    });
+
+    circle.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isInit) return;
+
+        const dx = e.touches[0].clientX - lastX;
+        const dy = e.touches[0].clientY - lastY;
+
+        send('mouse_move', {
+            dx: Math.round(dx * SENSITIVITY),
+            dy: Math.round(dy * SENSITIVITY)
+        });
+
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+    });
+
+    // 左侧拖动按钮
+    leftBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+        isDraggingLeft = true;
+        send('mouse_down', { button: 'left' });
+    });
+
+    leftBtn.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isInit || !isDraggingLeft) return;
+
+        const dx = e.touches[0].clientX - lastX;
+        const dy = e.touches[0].clientY - lastY;
+
+        send('mouse_move', {
+            dx: Math.round(dx * SENSITIVITY),
+            dy: Math.round(dy * SENSITIVITY)
+        });
+
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+    });
+
+    leftBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isDraggingLeft) {
+            isDraggingLeft = false;
+            send('mouse_up', { button: 'left' });
+        }
+    });
+
+    // 右侧右键按钮
+    rightBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const touch = e.changedTouches[0];
+        const dx = Math.abs(touch.clientX - lastX);
+        const dy = Math.abs(touch.clientY - lastY);
+        if (Math.hypot(dx, dy) < 15) {
+            send('mouse_click', { button: 'right', clicks: 1 });
+        }
+    });
+
+    // ========== 第一阶段功能：工具栏事件 ==========
+    // 画质选择
+    qualityBtn.addEventListener('click', () => {
+        qualityMenu.style.display = qualityMenu.style.display === 'block' ? 'none' : 'block';
+    });
+
+    document.querySelectorAll('.quality-option').forEach(option => {
+        option.addEventListener('click', () => {
+            document.querySelectorAll('.quality-option').forEach(o => o.classList.remove('active'));
+            option.classList.add('active');
+            currentQualityLevel = parseInt(option.dataset.level);
+            updateStream();
+            qualityMenu.style.display = 'none';
+            showToast(`已切换到${option.textContent}`);
+        });
+    });
+
+    // 键盘
+    keyboardBtn.addEventListener('click', () => {
+        keyboard.style.display = keyboard.style.display === 'block' ? 'none' : 'block';
+        if (keyboard.style.display === 'block') {
+            keyboardInput.focus();
+        }
+    });
+
+    keyboardInput.addEventListener('input', (e) => {
+        const text = e.target.value;
+        if (text) {
+            // 逐个发送字符
+            for (let char of text) {
+                send('key_down', { key: char });
+                send('key_up', { key: char });
+            }
+            e.target.value = '';
+        }
+    });
+
+    // 剪贴板同步
+    clipboardBtn.addEventListener('click', async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (text) {
+                send('clipboard_update', { content: text });
+                showToast('已发送到电脑剪贴板');
+            }
+        } catch (e) {
+            showToast('无法读取剪贴板');
+        }
+    });
+
+    // ========== Socket数据同步 ==========
+    socket.on('connect', () => {
+        console.log('✅ 连接后端成功');
+    });
+
+    socket.on('screen_info', (data) => {
+        PC_WIDTH = data.width;
+        PC_HEIGHT = data.height;
+        console.log('✅ 电脑屏幕:', PC_WIDTH, 'x', PC_HEIGHT);
+        initScreen();
+        checkInit();
+    });
+
+    socket.on('frame', (data) => {
+        const blob = new Blob([data], { type: 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const oldUrl = screenImg.src;
+        screenImg.onload = () => {
+            if (oldUrl) URL.revokeObjectURL(oldUrl);
+        };
+        screenImg.src = url;
+    });
+
+    socket.on('mouse_pos', (data) => {
+        pcMouseX = data.x;
+        pcMouseY = data.y;
+        updateCursor();
+    });
+
+    socket.on('clipboard_update', async (data) => {
+        const content = data.content;
+        if (content) {
+            try {
+                await navigator.clipboard.writeText(content);
+                showToast('电脑剪贴板已同步到手机');
+            } catch (e) {
+                console.log('无法写入剪贴板');
+            }
+        }
+    });
+
+    socket.on('disconnect', () => {
+        console.log('❌ 与后端断开连接');
+        isInit = false;
+        cursor.style.visibility = 'hidden';
+        circle.style.visibility = 'hidden';
+        leftBtn.style.visibility = 'hidden';
+        rightBtn.style.visibility = 'hidden';
+    });
+
+    // ========== 安全初始化 ==========
+    function checkInit() {
+        if (PC_WIDTH > 0 && PC_HEIGHT > 0) {
+            isInit = true;
+            updateCursor();
+            console.log('✅ 前端初始化完成');
+        }
+    }
+
+    // ========== 页面事件 ==========
+    window.addEventListener('resize', () => {
+        if (isInit) {
+            initScreen();
+            updateCursor();
+        }
+    });
+
+    // 防止页面滚动
+    document.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+    }, { passive: false });
+
+    // 点击空白处关闭菜单
+    document.addEventListener('click', (e) => {
+        if (!qualityBtn.contains(e.target) && !qualityMenu.contains(e.target)) {
+            qualityMenu.style.display = 'none';
+        }
+    });
+
+    // 注册Service Worker
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then((registration) => {
+                    console.log('✅ ServiceWorker 注册成功');
+                })
+                .catch((error) => {
+                    console.log('❌ ServiceWorker 注册失败:', error);
+                });
+        });
+    }
+</script>
+</body>
+</html>

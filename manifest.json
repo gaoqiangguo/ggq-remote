@@ -1,0 +1,17 @@
+{
+  "name": "远程控制",
+  "short_name": "远程控制",
+  "description": "极致画质远程控制电脑",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#000000",
+  "theme_color": "#0096ff",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1159/1159621.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
