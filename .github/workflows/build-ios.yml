@@ -20,9 +20,22 @@ jobs:
 
       - name: 初始化Capacitor项目
         run: |
-          npm init -y
+          # 初始化npm项目，强制指定主入口为index.html
+          echo '{
+            "name": "ggq-remote",
+            "version": "1.0.0",
+            "main": "index.html",
+            "scripts": {},
+            "keywords": [],
+            "author": "",
+            "license": "ISC"
+          }' > package.json
+          
+          # 安装Capacitor
           npm install @capacitor/core@5.7.0 @capacitor/cli@5.7.0 @capacitor/ios@5.7.0
-          npx cap init --web-dir . "GGQ远程" com.ggq.remote --npm-client npm
+          
+          # 初始化Capacitor
+          npx cap init --web-dir . "GGQ远程" com.ggq.remote
 
       - name: 添加iOS平台
         run: |
