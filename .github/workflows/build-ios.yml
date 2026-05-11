@@ -6,49 +6,38 @@ on:
 
 jobs:
   build-ipa:
-    runs-on: macos-13
-    timeout-minutes: 30
-    
+    runs-on: macos-latest   # 换成最新macOS，排队更快
+    timeout-minutes: 20      # 超时缩短
+
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 设置Node.js环境
+      - name: 设置Node.js环境（带缓存）
         uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: 'npm'
 
       - name: 准备前端文件
         run: |
-          # 创建www文件夹（Capacitor要求必须放在子目录）
           mkdir -p www
-          
-          # 将所有前端文件移动到www文件夹
           mv index.html www/
           mv service-worker.js www/
           mv manifest.json www/
-          
-          # 如果有其他文件夹也一起移动
-          if [ -d "js" ]; then mv js www/; fi
-          if [ -d "css" ]; then mv css www/; fi
-          if [ -d "images" ]; then mv images www/; fi
+          [ -d js ] && mv js www/
+          [ -d css ] && mv css www/
+          [ -d images ] && mv images www/
 
       - name: 初始化Capacitor项目
         run: |
-          # 初始化npm项目
           npm init -y
-          
-          # 安装经过测试的稳定版Capacitor
           npm install @capacitor/core@4.8.1 @capacitor/cli@4.8.1 @capacitor/ios@4.8.1
-          
-          # 初始化Capacitor，指定webDir为www
           npx cap init "GGQ远程" com.ggq.remote --web-dir www
 
       - name: 添加iOS平台
         run: |
           npx cap add ios
-          
-          # 创建导出配置文件
           cat > ios/App/exportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -72,14 +61,9 @@ jobs:
 
       - name: 配置iOS项目
         run: |
-          # 关闭ATS，允许HTTP连接
           plutil -replace NSAppTransportSecurity -json '{"NSAllowsArbitraryLoads": true}' ios/App/App/Info.plist
-          
-          # 配置全屏显示
           plutil -replace UIStatusBarHidden -bool true ios/App/App/Info.plist
           plutil -replace UIRequiresFullScreen -bool true ios/App/App/Info.plist
-          
-          # 配置支持所有方向
           plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait","UIInterfaceOrientationPortraitUpsideDown","UIInterfaceOrientationLandscapeLeft","UIInterfaceOrientationLandscapeRight"]' ios/App/App/Info.plist
 
       - name: 同步项目
