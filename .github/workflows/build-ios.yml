@@ -7,89 +7,74 @@ on:
 jobs:
   build-ipa:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 设置Node.js环境
+      - name: 安装Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: 准备前端文件
+      - name: 初始化项目
         run: |
+          # 强制创建www目录并复制文件
           mkdir -p www
-          mv index.html www/
-          mv service-worker.js www/
-          mv manifest.json www/
-          [ -d js ] && mv js www/
-          [ -d css ] && mv css www/
-          [ -d images ] && mv images www/
+          cp -R ./* www/
+          rm -rf www/.github www/node_modules www/package-lock.json
 
-      - name: 初始化Capacitor项目
-        run: |
-          npm init -y
+          # 初始化npm
+          echo '{
+            "name": "ggq-remote",
+            "version": "1.0.0",
+            "description": "",
+            "main": "index.html",
+            "scripts": {},
+            "keywords": [],
+            "author": "",
+            "license": "ISC"
+          }' > package.json
+
+          # 安装Capacitor
           npm install @capacitor/core@4.8.1 @capacitor/cli@4.8.1 @capacitor/ios@4.8.1
+
+          # 初始化Capacitor
           npx cap init "GGQ远程" com.ggq.remote --web-dir www
 
       - name: 添加iOS平台
         run: |
           npx cap add ios
-          cat > ios/App/exportOptions.plist << EOF
+
+      - name: 配置项目
+        run: |
+          # 允许HTTP连接
+          plutil -replace NSAppTransportSecurity -json '{"NSAllowsArbitraryLoads": true}' ios/App/App/Info.plist
+          # 全屏设置
+          plutil -replace UIStatusBarHidden -bool true ios/App/App/Info.plist
+          plutil -replace UIRequiresFullScreen -bool true ios/App/App/Info.plist
+
+      - name: 同步并构建
+        run: |
+          npx cap sync ios
+          cd ios/App
+          xcodebuild archive -scheme App -configuration Debug -archivePath App.xcarchive CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+          xcodebuild -exportArchive -archivePath App.xcarchive -exportPath . -exportOptionsPlist <(cat <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>method</key>
               <string>development</string>
-              <key>teamID</key>
-              <string>AAAAAAAAAA</string>
               <key>signingStyle</key>
               <string>automatic</string>
-              <key>stripSwiftSymbols</key>
-              <true/>
-              <key>uploadBitcode</key>
-              <false/>
-              <key>uploadSymbols</key>
-              <false/>
           </dict>
           </plist>
-          EOF
+          EOF) CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
 
-      - name: 配置iOS项目
-        run: |
-          plutil -replace NSAppTransportSecurity -json '{"NSAllowsArbitraryLoads": true}' ios/App/App/Info.plist
-          plutil -replace UIStatusBarHidden -bool true ios/App/App/Info.plist
-          plutil -replace UIRequiresFullScreen -bool true ios/App/App/Info.plist
-          plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait","UIInterfaceOrientationPortraitUpsideDown","UIInterfaceOrientationLandscapeLeft","UIInterfaceOrientationLandscapeRight"]' ios/App/App/Info.plist
-
-      - name: 同步项目
-        run: npx cap sync ios
-
-      - name: 构建IPA
-        run: |
-          cd ios/App
-          xcodebuild clean archive \
-            -scheme App \
-            -configuration Debug \
-            -archivePath App.xcarchive \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
-          
-          xcodebuild -exportArchive \
-            -archivePath App.xcarchive \
-            -exportPath . \
-            -exportOptionsPlist exportOptions.plist \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: 上传IPA文件
+      - name: 上传IPA
         uses: actions/upload-artifact@v4
         with:
           name: GGQ远程.ipa
           path: ios/App/App.ipa
-          retention-days: 90
