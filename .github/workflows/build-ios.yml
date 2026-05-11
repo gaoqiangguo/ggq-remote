@@ -6,8 +6,8 @@ on:
 
 jobs:
   build-ipa:
-    runs-on: macos-14
-    timeout-minutes: 20
+    runs-on: macos-13
+    timeout-minutes: 30
     
     steps:
       - name: 检出代码
@@ -16,26 +16,33 @@ jobs:
       - name: 设置Node.js环境
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 18
+
+      - name: 准备前端文件
+        run: |
+          # 创建www文件夹（Capacitor要求必须放在子目录）
+          mkdir -p www
+          
+          # 将所有前端文件移动到www文件夹
+          mv index.html www/
+          mv service-worker.js www/
+          mv manifest.json www/
+          
+          # 如果有其他文件夹也一起移动
+          if [ -d "js" ]; then mv js www/; fi
+          if [ -d "css" ]; then mv css www/; fi
+          if [ -d "images" ]; then mv images www/; fi
 
       - name: 初始化Capacitor项目
         run: |
-          # 初始化npm项目，强制指定主入口为index.html
-          echo '{
-            "name": "ggq-remote",
-            "version": "1.0.0",
-            "main": "index.html",
-            "scripts": {},
-            "keywords": [],
-            "author": "",
-            "license": "ISC"
-          }' > package.json
+          # 初始化npm项目
+          npm init -y
           
-          # 安装Capacitor
-          npm install @capacitor/core@5.7.0 @capacitor/cli@5.7.0 @capacitor/ios@5.7.0
+          # 安装经过测试的稳定版Capacitor
+          npm install @capacitor/core@4.8.1 @capacitor/cli@4.8.1 @capacitor/ios@4.8.1
           
-          # 初始化Capacitor
-          npx cap init --web-dir . "GGQ远程" com.ggq.remote
+          # 初始化Capacitor，指定webDir为www
+          npx cap init "GGQ远程" com.ggq.remote --web-dir www
 
       - name: 添加iOS平台
         run: |
@@ -65,14 +72,14 @@ jobs:
 
       - name: 配置iOS项目
         run: |
-          # 关闭ATS，允许HTTP连接（兼容所有plutil版本）
+          # 关闭ATS，允许HTTP连接
           plutil -replace NSAppTransportSecurity -json '{"NSAllowsArbitraryLoads": true}' ios/App/App/Info.plist
           
           # 配置全屏显示
           plutil -replace UIStatusBarHidden -bool true ios/App/App/Info.plist
           plutil -replace UIRequiresFullScreen -bool true ios/App/App/Info.plist
           
-          # 配置支持的方向
+          # 配置支持所有方向
           plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait","UIInterfaceOrientationPortraitUpsideDown","UIInterfaceOrientationLandscapeLeft","UIInterfaceOrientationLandscapeRight"]' ios/App/App/Info.plist
 
       - name: 同步项目
