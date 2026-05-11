@@ -65,13 +65,12 @@ jobs:
 
       - name: 配置iOS项目
         run: |
-          # 关闭ATS，允许HTTP连接
-          plutil -insert NSAppTransportSecurity -dict ios/App/App/Info.plist
-          plutil -insert NSAppTransportSecurity.NSAllowsArbitraryLoads -bool true ios/App/App/Info.plist
+          # 关闭ATS，允许HTTP连接（兼容所有plutil版本）
+          plutil -replace NSAppTransportSecurity -json '{"NSAllowsArbitraryLoads": true}' ios/App/App/Info.plist
           
           # 配置全屏显示
-          plutil -insert UIStatusBarHidden -bool true ios/App/App/Info.plist
-          plutil -insert UIRequiresFullScreen -bool true ios/App/App/Info.plist
+          plutil -replace UIStatusBarHidden -bool true ios/App/App/Info.plist
+          plutil -replace UIRequiresFullScreen -bool true ios/App/App/Info.plist
           
           # 配置支持的方向
           plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait","UIInterfaceOrientationPortraitUpsideDown","UIInterfaceOrientationLandscapeLeft","UIInterfaceOrientationLandscapeRight"]' ios/App/App/Info.plist
