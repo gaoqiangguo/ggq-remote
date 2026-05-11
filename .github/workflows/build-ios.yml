@@ -1,0 +1,94 @@
+name: 构建iOS远程控制APP
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-ipa:
+    runs-on: macos-14
+    timeout-minutes: 20
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置Node.js环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 初始化Capacitor项目
+        run: |
+          npm init -y
+          npm install @capacitor/core@5.7.0 @capacitor/cli@5.7.0 @capacitor/ios@5.7.0
+          npx cap init --web-dir . "GGQ远程" com.ggq.remote --npm-client npm
+
+      - name: 添加iOS平台
+        run: |
+          npx cap add ios
+          
+          # 创建导出配置文件
+          cat > ios/App/exportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>teamID</key>
+              <string>AAAAAAAAAA</string>
+              <key>signingStyle</key>
+              <string>automatic</string>
+              <key>stripSwiftSymbols</key>
+              <true/>
+              <key>uploadBitcode</key>
+              <false/>
+              <key>uploadSymbols</key>
+              <false/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: 配置iOS项目
+        run: |
+          # 关闭ATS，允许HTTP连接
+          plutil -insert NSAppTransportSecurity -dict ios/App/App/Info.plist
+          plutil -insert NSAppTransportSecurity.NSAllowsArbitraryLoads -bool true ios/App/App/Info.plist
+          
+          # 配置全屏显示
+          plutil -insert UIStatusBarHidden -bool true ios/App/App/Info.plist
+          plutil -insert UIRequiresFullScreen -bool true ios/App/App/Info.plist
+          
+          # 配置支持的方向
+          plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait","UIInterfaceOrientationPortraitUpsideDown","UIInterfaceOrientationLandscapeLeft","UIInterfaceOrientationLandscapeRight"]' ios/App/App/Info.plist
+
+      - name: 同步项目
+        run: npx cap sync ios
+
+      - name: 构建IPA
+        run: |
+          cd ios/App
+          xcodebuild clean archive \
+            -scheme App \
+            -configuration Debug \
+            -archivePath App.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+          
+          xcodebuild -exportArchive \
+            -archivePath App.xcarchive \
+            -exportPath . \
+            -exportOptionsPlist exportOptions.plist \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 上传IPA文件
+        uses: actions/upload-artifact@v4
+        with:
+          name: GGQ远程.ipa
+          path: ios/App/App.ipa
+          retention-days: 90
